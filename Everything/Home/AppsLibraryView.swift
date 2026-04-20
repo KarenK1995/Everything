@@ -9,7 +9,7 @@ import SwiftUI
 
 struct AppsLibraryView: View {
     @ObservedObject var appLibrary: WorkspaceAppLibrary
-    let openMenuItem: (HomeMenuItem) -> Void
+    let openWorkspaceApp: (WorkspaceAppID) -> Void
 
     @State private var previewedAppID: WorkspaceAppID?
 
@@ -45,7 +45,7 @@ struct AppsLibraryView: View {
             Text("Apps")
                 .font(.system(size: 34, weight: .black, design: .rounded))
 
-            Text("Chats and AI are installed from the start. Add the rest of the workspace apps here and they will stay under Apps.")
+            Text("Chats and AI are installed from the start. Add more apps here and they instantly appear in the left menu Apps Library.")
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
 
@@ -96,7 +96,7 @@ struct AppsLibraryView: View {
             ForEach(appLibrary.installedApps) { app in
                 AppCard(
                     app: app,
-                    buttonTitle: app.id == .chats || app.id == .ai ? "Open" : "Preview",
+                    buttonTitle: appLibrary.isInstalled(app) ? "Open" : "Preview",
                     trailingTitle: app.isPreinstalled ? nil : "Remove",
                     onPrimaryAction: { handlePrimaryAction(for: app) },
                     onSecondaryAction: app.isPreinstalled ? nil : {
@@ -159,7 +159,7 @@ struct AppsLibraryView: View {
                 }
             }
 
-            if app.id == .chats || app.id == .ai {
+            if appLibrary.isInstalled(app) {
                 Button("Open \(app.name)") {
                     handlePrimaryAction(for: app)
                 }
@@ -172,12 +172,9 @@ struct AppsLibraryView: View {
     }
 
     private func handlePrimaryAction(for app: WorkspaceApp) {
-        switch app.id {
-        case .chats:
-            openMenuItem(.chats)
-        case .ai:
-            openMenuItem(.ai)
-        default:
+        if appLibrary.isInstalled(app) {
+            openWorkspaceApp(app.id)
+        } else {
             previewedAppID = app.id
         }
     }

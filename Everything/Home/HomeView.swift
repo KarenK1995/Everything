@@ -8,6 +8,11 @@
 import SwiftUI
 import FirebaseAuth
 
+private enum HomeDestination: Hashable {
+    case menu(HomeMenuItem)
+    case app(WorkspaceAppID)
+}
+
 enum HomeMenuItem: String, CaseIterable, Identifiable {
     case chats
     case ai
@@ -62,7 +67,7 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @FocusState private var isSearchFieldFocused: Bool
 
-    @State private var selectedItem: HomeMenuItem? = .chats
+    @State private var selectedDestination: HomeDestination = .menu(.chats)
     @StateObject private var appLibrary = WorkspaceAppLibrary()
     @State private var isProfilePresented = false
     @State private var isSearchExpanded = false
@@ -98,12 +103,23 @@ struct HomeView: View {
                 isSearchFieldFocused = true
             }
         }
+        .onChange(of: appLibrary.installedAppIDs) { _, installedIDs in
+            guard case .app(let appID) = selectedDestination, !installedIDs.contains(appID) else {
+                return
+            }
+            selectedDestination = .menu(.apps)
+        }
     }
 
     private var compactSelection: Binding<HomeMenuItem> {
         Binding(
-            get: { selectedItem ?? .chats },
-            set: { selectedItem = $0 }
+            get: {
+                if case .menu(let menuItem) = selectedDestination {
+                    return menuItem
+                }
+                return .chats
+            },
+            set: { selectedDestination = .menu($0) }
         )
     }
 
@@ -113,7 +129,7 @@ struct HomeView: View {
         } detail: {
             ZStack {
                 BackgroundView()
-                detailView(for: selectedItem ?? .chats)
+                detailView(for: selectedDestination)
             }
         }
     }
@@ -150,7 +166,7 @@ struct HomeView: View {
         NavigationStack {
             ZStack {
                 BackgroundView()
-                detailView(for: item)
+                detailView(for: .menu(item))
             }
         }
     }
@@ -172,6 +188,17 @@ struct HomeView: View {
                             sidebarItemButton(for: item)
                         }
 
+                        if !sidebarInstalledApps.isEmpty {
+                            Text("Apps Library")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 14)
+
+                            ForEach(sidebarInstalledApps) { app in
+                                sidebarAppButton(for: app)
+                            }
+                        }
+
                         if filteredItems.isEmpty {
                             ContentUnavailableView(
                                 "No Results",
@@ -191,35 +218,44 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func detailView(for item: HomeMenuItem) -> some View {
-        switch item {
-        case .chats:
-            ConversationListView()
-        case .ai:
-            AppWorkspacePlaceholderView(app: appLibrary.app(for: .ai))
-        case .apps:
-            AppsLibraryView(appLibrary: appLibrary) { menuItem in
-                selectedItem = menuItem
-            }
-        case .settings:
-            VStack(alignment: .leading, spacing: 16) {
-                Text(item.title)
-                    .font(.largeTitle.bold())
-
-                Text(item.description)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-
-                Button("Open Profile") {
-                    isProfilePresented = true
+    private func detailView(for destination: HomeDestination) -> some View {
+        switch destination {
+        case .menu(let item):
+            switch item {
+            case .chats:
+                ConversationListView()
+            case .ai:
+                AppWorkspacePlaceholderView(app: appLibrary.app(for: .ai))
+            case .apps:
+                AppsLibraryView(appLibrary: appLibrary) { appID in
+                    selectedDestination = .app(appID)
                 }
-                .buttonStyle(.borderedProminent)
+            case .settings:
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(item.title)
+                        .font(.largeTitle.bold())
 
-                Spacer()
+                    Text(item.description)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+
+                    Button("Open Profile") {
+                        isProfilePresented = true
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(24)
+                .navigationTitle(item.title)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(24)
-            .navigationTitle(item.title)
+        case .app(let appID):
+            if appID == .tasks {
+                TasksWorkspaceView()
+            } else {
+                AppWorkspacePlaceholderView(app: appLibrary.app(for: appID))
+            }
         }
     }
 
@@ -229,6 +265,12 @@ struct HomeView: View {
         return HomeMenuItem.allCases.filter { item in
             item.title.localizedCaseInsensitiveContains(searchText)
                 || item.description.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var sidebarInstalledApps: [WorkspaceApp] {
+        appLibrary.installedApps.filter { app in
+            app.id != .chats && app.id != .ai
         }
     }
 
@@ -258,20 +300,20 @@ struct HomeView: View {
             NavigationLink {
                 ZStack {
                     BackgroundView()
-                    detailView(for: item)
+                    detailView(for: .menu(item))
                 }
             } label: {
                 sidebarItemLabel(for: item)
             }
             .simultaneousGesture(
                 TapGesture().onEnded {
-                    selectedItem = item
+                    selectedDestination = .menu(item)
                 }
             )
             .buttonStyle(.plain)
         } else {
             Button {
-                selectedItem = item
+                selectedDestination = .menu(item)
             } label: {
                 sidebarItemLabel(for: item)
             }
@@ -292,14 +334,37 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
-        .background(selectionBackground(for: item))
+        .background(selectionBackground(for: .menu(item)))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func selectionBackground(for item: HomeMenuItem) -> some View {
+    private func sidebarAppButton(for app: WorkspaceApp) -> some View {
+        Button {
+            selectedDestination = .app(app.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: app.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22)
+
+                Text(app.name)
+                    .font(.body.weight(.medium))
+
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(selectionBackground(for: .app(app.id)))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func selectionBackground(for destination: HomeDestination) -> some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(selectedItem == item ? selectedFillColor : .clear)
+            .fill(selectedDestination == destination ? selectedFillColor : .clear)
     }
 
     private var compactActionCluster: some View {
